@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agenda Estética</title>
+  <link href="GoogleSans-Regular.ttf" rel="stylesheet" type="font/ttf" />
+  <script src="https://apis.google.com/js/api.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <style>
+    * {
+      font-family: 'GoogleSans-Regular', sans-serif;
+      box-sizing: border-box;
+    }
+    body {
+      background-color: white;
+      color: #07225e;
+      padding: 20px;
+    }
+    input, select, button {
+      border: 1px solid #07225e;
+      border-radius: 10px;
+      padding: 8px;
+      margin: 5px 0;
+      width: 80%;
+      font-size: 14px;
+      transition: border-color 0.3s;
+      color: #07225e;
+    }
+    input:focus, select:focus {
+      border-color: #4285F4;
+      outline: none;
+    }
+    .red-border {
+      border-color: red !important;
+    }
+    .error {
+      color: red;
+      margin-top: 5px;
+    }
+    .hidden {
+      display: none;
+    }
+    label {
+      display: block;
+      margin-top: 10px;
+      text-align: center;
+    }
+    #direccion[disabled] {
+      background-color: #eee;
+      color: #888;
+    }
+    .calendar-day.disabled {
+      background-color: #4285f4;
+      pointer-events: none;
+    }
+    .cancelar input:focus {
+      border-color: red;
+    }
+    button[type="submit"] {
+      background-color: #4285f4;
+      color: white;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .cancelar button[type="submit"] {
+      background-color: red;
+      color: white;
+      font-size: 14px;
+      transition: transform 0.2s ease, background-color 0.2s ease;
+    }
+    .cancelar button[type="submit"]:hover {
+      transform: scale(1.05);
+      background-color: #b30000;
+    }
+    h1, h2 {
+      text-align: center;
+    }
+    h2 {
+      color: red;
+    }
+  </style>
+</head>
+<body>
+  <h1>Agenda tu cita</h1>
+
+  <form id="form-cita">
+    <label>Nombre:</label>
+    <input type="text" id="nombre" required />
+
+    <label>Servicio:</label>
+    <select id="servicio">
+      <option value="corte">Corte de cabello</option>
+      <option value="tinte">Tinte</option>
+    </select>
+
+    <label>Tipo de cita:</label>
+    <select id="tipo">
+      <option value="local">En salón</option>
+      <option value="domicilio">A domicilio</option>
+    </select>
+
+    <label>Dirección (si aplica):</label>
+    <input type="text" id="direccion" disabled />
+
+    <label>Fecha:</label>
+    <input type="date" id="fecha" required />
+
+    <label>Hora:</label>
+    <select id="hora" required></select>
+
+    <div class="error hidden" id="error-cita"></div>
+
+    <button type="submit">Agendar cita</button>
+  </form>
+
+  <hr />
+
+  <h2>Cancelar una cita</h2>
+  <form id="form-cancelar" class="cancelar">
+    <label>Nombre:</label>
+    <input type="text" id="nombre-cancelar" required />
+
+    <label>Fecha:</label>
+    <input type="date" id="fecha-cancelar" required />
+
+    <div class="error hidden" id="error-cancelar"></div>
+    <button type="submit">Cancelar cita</button>
+  </form>
+
+  <script>
+    const CLIENT_ID = '369426810693-748c81n9gsp6auvrp4n742e8n7tbbv7c.apps.googleusercontent.com';
+    const API_KEY = 'AIzaSyCr_djW5gFuj-c7QsfzhOnM6Yj2jK99YOQ';
+    const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest';
+    const SCOPES = 'https://www.googleapis.com/auth/calendar.events';
+
+    let token = null;
+    const citas = [];
+
+    function iniciarGoogleAPI() {
+      gapi.load('client:auth2', async () => {
+        await gapi.client.init({
+          apiKey: API_KEY,
+          clientId: CLIENT_ID,
+          discoveryDocs: [DISCOVERY_DOC],
+          scope: SCOPES,
+        });
+
+        const auth = gapi.auth2.getAuthInstance();
+        if (!auth.isSignedIn.get()) await auth.signIn();
+        token = auth.currentUser.get().getAuthResponse().access_token;
+        console.log('Token:', token);
+      });
+    }
+
+    window.onload = () => {
+      iniciarGoogleAPI();
+      const horaSelect = document.getElementById('hora');
+      for (let h = 8; h <= 22; h++) {
+        for (let m = 0; m <= 59; m++) {
+          const hora = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+          const option = document.createElement('option');
+          option.value = hora;
+          option.textContent = hora;
+          horaSelect.appendChild(option);
+        }
+      }
+    };
+
+    document.getElementById('tipo').addEventListener('change', function () {
+      const direccion = document.getElementById('direccion');
+      direccion.disabled = this.value === 'local';
+      direccion.style.backgroundColor = direccion.disabled ? '#eee' : '';
+      direccion.style.color = direccion.disabled ? '#888' : '#07225e';
+      if (direccion.disabled) direccion.value = '';
+    });
+
+    document.getElementById('form-cita').addEventListener('submit', async function (e) {
+      e.preventDefault();
+
+      const nombre = document.getElementById('nombre').value.trim();
+      const servicio = document.getElementById('servicio').value;
+      const tipo = document.getElementById('tipo').value;
+      const direccion = document.getElementById('direccion').value.trim();
+      const fecha = document.getElementById('fecha').value;
+      const hora = document.getElementById('hora').value;
+
+      const [h, m] = hora.split(':').map(Number);
+      if (h < 8) {
+        mostrarError('No se puede agendar antes de las 8am.');
+        return;
+      }
+      if (h > 22 || (h === 22 && m > 0)) {
+        mostrarError('No se puede agendar después de las 10pm.');
+        return;
+      }
+
+      const duracion = servicio === 'tinte' ? 2 : 1;
+      let inicio = new Date(`${fecha}T${hora}`);
+      let fin = new Date(inicio.getTime() + duracion * 60 * 60 * 1000);
+      const margen = tipo === 'domicilio' ? 30 * 60 * 1000 : 0;
+
+      if (inicio.getDay() === 0) {
+        mostrarError('No se puede agendar los domingos.');
+        return;
+      }
+
+      const conflicto = citas.some(cita => {
+        if (cita.fecha !== fecha) return false;
+        const ini = new Date(`${cita.fecha}T${cita.hora}`);
+        let finCita = new Date(ini.getTime() + cita.duracion * 60 * 60 * 1000);
+        if (tipo === 'domicilio' || cita.tipo === 'domicilio') finCita.setTime(finCita.getTime() + 30 * 60 * 1000);
+        return inicio < finCita && fin > ini;
+      });
+
+      if (conflicto) {
+        mostrarError('Ya hay una cita en ese horario.');
+        return;
+      }
+
+      citas.push({ nombre, servicio, tipo, direccion, fecha, hora, duracion });
+      alert('Cita agendada correctamente.');
+
+      const resumen = tipo === 'domicilio' ? `${nombre} - ${direccion}` : nombre;
+      const isoInicio = inicio.toISOString();
+      const isoFin = fin.toISOString();
+
+      try {
+        await gapi.client.calendar.events.insert({
+          calendarId: 'primary',
+          resource: {
+            summary: resumen,
+            start: { dateTime: isoInicio },
+            end: { dateTime: isoFin }
+          }
+        });
+      } catch (err) {
+        console.error('Error al crear evento:', err);
+      }
+
+      this.reset();
+    });
+
+    function mostrarError(msg) {
+      const errorDiv = document.getElementById('error-cita');
+      errorDiv.textContent = msg;
+      errorDiv.classList.remove('hidden');
+    }
+
+    document.getElementById('form-cancelar').addEventListener('submit', function (e) {
+      e.preventDefault();
+      const nombre = document.getElementById('nombre-cancelar').value.trim();
+      const fecha = document.getElementById('fecha-cancelar').value;
+      const errorDiv = document.getElementById('error-cancelar');
+      errorDiv.classList.add('hidden');
+
+      const index = citas.findIndex(cita => cita.nombre === nombre && cita.fecha === fecha);
+      if (index === -1) {
+        errorDiv.textContent = 'No hay ninguna cita con ese nombre en esa fecha.';
+        errorDiv.classList.remove('hidden');
+        return;
+      }
+
+      citas.splice(index, 1);
+      alert('Cita cancelada.');
+      this.reset();
+    });
+  </script>
+</body>
+</html>
